@@ -1,0 +1,4 @@
+[submodule "strider-common-lib"]
+	path = strider-common-lib
+	url = https://github.com/TEAM-STRIDER-DJS/strider-common-lib.git
+    branch = develop

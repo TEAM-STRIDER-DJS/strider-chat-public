@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Strider Chat Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: monospace; padding: 20px; background: #1a1a2e; color: #e0e0e0; }
+        h2 { color: #00d2ff; margin-bottom: 16px; }
+
+        .config { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+        .config h3 { color: #e94560; margin-bottom: 12px; }
+
+        .panels { display: flex; gap: 16px; }
+        .panel { flex: 1; background: #16213e; border-radius: 8px; padding: 16px; }
+        .panel-a { border: 2px solid #00d2ff; }
+        .panel-b { border: 2px solid #e94560; }
+        .panel-a h3 { color: #00d2ff; margin-bottom: 12px; }
+        .panel-b h3 { color: #e94560; margin-bottom: 12px; }
+
+        label { display: inline-block; width: 100px; color: #a0a0a0; font-size: 13px; }
+        input { background: #0f3460; border: 1px solid #533483; color: #fff; padding: 6px 10px; border-radius: 4px; margin-bottom: 6px; }
+        button { color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; margin: 2px; font-size: 12px; }
+        .panel-a button { background: #0077b6; }
+        .panel-a button:hover { background: #005f8a; }
+        .panel-b button { background: #e94560; }
+        .panel-b button:hover { background: #c73652; }
+        .btn-clear { background: #333 !important; }
+
+        .status { padding: 3px 8px; border-radius: 4px; font-size: 11px; display: inline-block; margin-left: 8px; }
+        .connected { background: #0a3d0a; color: #4caf50; }
+        .disconnected { background: #3d0a0a; color: #f44336; }
+
+        .room-list { background: #0a0a1a; border: 1px solid #333; border-radius: 4px; padding: 8px; max-height: 180px; overflow-y: auto; margin: 8px 0; }
+        .room-item { padding: 8px; border-bottom: 1px solid #222; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+        .room-item:hover { background: #1a1a3e; }
+        .room-item.selected { background: #0f3460; border-left: 3px solid #00d2ff; }
+        .room-item .room-info { flex: 1; }
+        .room-item .room-name { color: #e0e0e0; font-size: 13px; }
+        .room-item .room-preview { color: #777; font-size: 11px; margin-top: 2px; }
+        .room-item .room-time { color: #555; font-size: 10px; }
+        .badge { background: #e94560; color: #fff; border-radius: 10px; padding: 2px 7px; font-size: 11px; margin-left: 8px; }
+        .badge-read { background: #0a3d0a; color: #4caf50; }
+
+        .chat-box { background: #0a0a1a; border: 1px solid #333; border-radius: 4px; padding: 10px; height: 250px; overflow-y: auto; margin: 8px 0; font-size: 13px; line-height: 1.8; }
+        .msg-mine { color: #00d2ff; }
+        .msg-other { color: #4caf50; }
+        .msg-info { color: #ffa726; }
+        .msg-error { color: #f44336; }
+        .msg-read { color: #888; font-style: italic; }
+
+        .send-row { display: flex; gap: 6px; }
+        .send-row input { flex: 1; }
+
+        .section-label { color: #a0a0a0; font-size: 12px; margin: 10px 0 4px 0; text-transform: uppercase; }
+    </style>
+</head>
+<body>
+    <h2>Strider Chat Test</h2>
+
+    <!-- Config -->
+    <div class="config">
+        <h3>Settings</h3>
+        <div style="margin-bottom: 8px;">
+            <label>Server URL</label>
+            <input id="serverUrl" value="http://localhost:8002" style="width: 300px;" />
+        </div>
+        <div style="display: flex; gap: 20px;">
+            <div>
+                <div style="margin-bottom: 6px;">
+                    <label>User A ID</label>
+                    <input id="userIdA" placeholder="user-a" style="width: 200px;" />
+                </div>
+                <div>
+                    <label>User A Token</label>
+                    <input id="tokenA" placeholder="JWT access token" style="width: 300px;" />
+                </div>
+            </div>
+            <div>
+                <div style="margin-bottom: 6px;">
+                    <label>User B ID</label>
+                    <input id="userIdB" placeholder="user-b" style="width: 200px;" />
+                </div>
+                <div>
+                    <label>User B Token</label>
+                    <input id="tokenB" placeholder="JWT access token" style="width: 300px;" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="panels">
+        <!-- User A -->
+        <div class="panel panel-a">
+            <h3>User A <span id="statusA" class="status disconnected">Disconnected</span></h3>
+
+            <div style="margin-bottom: 8px;">
+                <button onclick="connect('A')">Connect</button>
+                <button onclick="disconnect('A')">Disconnect</button>
+            </div>
+
+            <!-- Room List -->
+            <div class="section-label">Chat Rooms</div>
+            <div style="margin-bottom: 6px;">
+                <button onclick="loadRooms('A')">Load Rooms</button>
+                <button onclick="createNewRoom()">+ New Direct Room</button>
+            </div>
+            <div id="roomListA" class="room-list">
+                <div style="color: #555; padding: 8px;">Click "Load Rooms"</div>
+            </div>
+
+            <!-- Chat Area -->
+            <div class="section-label">Chat <span id="currentRoomA" style="color: #00d2ff;"></span></div>
+            <button class="btn-clear" onclick="document.getElementById('chatA').innerHTML=''">Clear</button>
+            <div id="chatA" class="chat-box"></div>
+            <div class="send-row">
+                <input id="inputA" placeholder="Type message..." onkeydown="if(event.key==='Enter') sendMsg('A')" />
+                <button onclick="sendMsg('A')">Send</button>
+            </div>
+        </div>
+
+        <!-- User B -->
+        <div class="panel panel-b">
+            <h3>User B <span id="statusB" class="status disconnected">Disconnected</span></h3>
+
+            <div style="margin-bottom: 8px;">
+                <button onclick="connect('B')">Connect</button>
+                <button onclick="disconnect('B')">Disconnect</button>
+            </div>
+
+            <!-- Room List -->
+            <div class="section-label">Chat Rooms</div>
+            <div style="margin-bottom: 6px;">
+                <button onclick="loadRooms('B')">Load Rooms</button>
+            </div>
+            <div id="roomListB" class="room-list">
+                <div style="color: #555; padding: 8px;">Click "Load Rooms"</div>
+            </div>
+
+            <!-- Chat Area -->
+            <div class="section-label">Chat <span id="currentRoomB" style="color: #e94560;"></span></div>
+            <button class="btn-clear" onclick="document.getElementById('chatB').innerHTML=''">Clear</button>
+            <div id="chatB" class="chat-box"></div>
+            <div class="send-row">
+                <input id="inputB" placeholder="Type message..." onkeydown="if(event.key==='Enter') sendMsg('B')" />
+                <button onclick="sendMsg('B')">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 테스트 화면 전용: 유저 A/B 두 패널을 동시에 띄우기 위해 패널별로 상태를 관리
+        // 실제 모바일 앱에서는 유저 1명이므로 state 구조 불필요
+        // 대신 단순 변수로 관리: let stompClient, roomSub, notifSub, selectedRoomId
+        const state = {
+            A: {
+                client: null,         // STOMP 클라이언트 (연결 후 설정)
+                roomSub: null,        // 현재 채팅방 구독 (msgSub + readSub 묶음, 방 전환 시 해제용)
+                notifSub: null,       // 인앱 알림 구독 (/sub/user/{userId}/notification, 연결 유지)
+                selectedRoomId: null  // 현재 입장 중인 채팅방 ID
+            },
+            B: {
+                client: null,
+                roomSub: null,
+                notifSub: null,
+                selectedRoomId: null
+            }
+        };
+
+        function getServerUrl() {
+            return document.getElementById('serverUrl').value.replace(/\/+$/, '');
+        }
+
+        function appendChat(panel, text, cls) {
+            const el = document.getElementById('chat' + panel);
+            const time = new Date().toLocaleTimeString();
+            el.innerHTML += `<div class="${cls}">[${time}] ${text}</div>`;
+            el.scrollTop = el.scrollHeight;
+        }
+
+        // 메시지 렌더링 전용 함수 (unreadCount 업데이트를 위해 data-created-at 속성 부여)
+        // data-client-message-id: 낙관적 업데이트 시 중복 감지용
+        function appendMessage(panel, msg, userId) {
+            const el = document.getElementById('chat' + panel);
+            const time = new Date(msg.createdAt).toLocaleTimeString();
+            const isOwn = msg.senderId === userId;
+            const cls = isOwn ? 'msg-mine' : 'msg-other';
+            const sender = isOwn ? 'Me' : msg.senderId;
+            const unreadCount = msg.unreadCount > 0 ? msg.unreadCount : 0;
+            const unreadHtml = unreadCount > 0
+                ? `<span class="unread-count" data-count="${unreadCount}"> [${unreadCount}]</span>`
+                : `<span class="unread-count" data-count="0"></span>`;
+            const clientMsgAttr = msg.clientMessageId ? ` data-client-message-id="${msg.clientMessageId}"` : '';
+            el.innerHTML += `<div class="${cls}" data-created-at="${msg.createdAt}"${clientMsgAttr}>[${time}] ${sender}: ${msg.content}${unreadHtml}</div>`;
+            el.scrollTop = el.scrollHeight;
+        }
+
+        function setStatus(panel, connected) {
+            const el = document.getElementById('status' + panel);
+            el.textContent = connected ? 'Connected' : 'Disconnected';
+            el.className = 'status ' + (connected ? 'connected' : 'disconnected');
+        }
+
+        // 서버 LocalDateTime(KST)과 동일한 포맷의 현재 시각 — "2026-08-26T14:12:33.123"
+        // toISOString()은 UTC(...Z)라 서버가 내려주는 readAt/createdAt과 문자열 비교하면
+        // 항상 9시간 작게 나와 낙관적 메시지가 무조건 차감된다.
+        function nowLocalIso() {
+            const d = new Date();
+            return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, -1);
+        }
+
+        function formatTime(dateStr) {
+            if (!dateStr) return '';
+            const d = new Date(dateStr);
+            return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        // ─────────────────────────────────────────
+        // STOMP Connect / Disconnect
+        // ─────────────────────────────────────────
+        // [React Native] SockJS는 브라우저 전용이라 사용 불가. @stomp/stompjs 라이브러리 사용
+        // import { Client } from '@stomp/stompjs';
+        // const client = new Client({
+        //   brokerURL: 'ws://서버주소/ws-chat/websocket',  // SockJS fallback 경로 직접 사용 (서버 설정 변경 불필요)
+        //   connectHeaders: { Authorization: 'Bearer ' + token },
+        //   onConnect: () => { ... },
+        // });
+        // client.activate();
+        function connect(panel) {
+            const userId = document.getElementById('userId' + panel).value;
+            const token = document.getElementById('token' + panel).value;
+            if (!userId) { appendChat(panel, 'User ID required', 'msg-error'); return; }
+            if (!token) { appendChat(panel, 'Token required', 'msg-error'); return; }
+
+            const wsUrl = getServerUrl() + '/ws-chat'; // WebSocket 연결 엔드포인트
+            const socket = new SockJS(wsUrl);          // WebSocket 연결 생성 (SockJS: WebSocket 미지원 환경에서 HTTP 롱폴링 등으로 fallback)
+            const client = Stomp.over(socket);         // WebSocket 연결 위에 STOMP 프로토콜 적용
+            client.debug = null;
+
+            // STOMP CONNECT 시 JWT 토큰 전달 → 서버에서 인증
+            const headers = { 'Authorization': 'Bearer ' + token };
+
+            client.connect(headers, function () {
+                state[panel].client = client;
+                setStatus(panel, true);
+                appendChat(panel, 'Connected as ' + userId, 'msg-info');
+
+                // 인앱 알림 채널 구독 (/sub/user/{userId}/notification)
+                // - NEW_MESSAGE: 해당 방 미열람 시 인앱 알림 표시 + 목록 새로고침
+                // - ROOM_LIST_UPDATE: 해당 방 열람 중이어도 목록 새로고침 (마지막 메시지, 안 읽은 수 갱신)
+                state[panel].notifSub = client.subscribe('/sub/user/' + userId + '/notification', function (frame) {
+                    const notif = JSON.parse(frame.body);
+                    if (notif.type === 'NEW_MESSAGE') {
+                        appendChat(panel, '[알림] ' + notif.senderId + ': ' + notif.preview, 'msg-info');
+                    }
+                    loadRooms(panel);
+                });
+            }, function (error) {
+                setStatus(panel, false);
+                appendChat(panel, 'Connection failed: ' + error, 'msg-error');
+            });
+        }
+
+        function disconnect(panel) {
+            if (state[panel].client) {
+                // 채팅방에 입장 중이면 퇴장 알림 전송 → 서버 Redis active:room 삭제
+                if (state[panel].selectedRoomId) {
+                    state[panel].client.send('/pub/chat/leave', {}, '{}');
+                }
+                // STOMP 연결 해제 → 서버 Redis online:user 삭제
+                state[panel].client.disconnect(() => {
+                    setStatus(panel, false);
+                    appendChat(panel, 'Disconnected', 'msg-info');
+                });
+                state[panel].client = null;
+                if (state[panel].roomSub) { state[panel].roomSub.unsubscribe(); state[panel].roomSub = null; } // 채팅방 구독 해제
+                if (state[panel].notifSub) { 
+                    state[panel].notifSub.unsubscribe(); 
+                    state[panel].notifSub = null; 
+                } // 인앱 알림 구독 해제
+                state[panel].selectedRoomId = null;
+                document.getElementById('currentRoom' + panel).textContent = '';
+                document.getElementById('roomList' + panel).innerHTML = '';
+                document.getElementById('chat' + panel).innerHTML = '';
+            }
+        }
+
+        // ─────────────────────────────────────────
+        // Room List (both panels)
+        // ─────────────────────────────────────────
+        async function loadRooms(panel) {
+            const token = document.getElementById('token' + panel).value;
+
+            try {
+                const res = await fetch(getServerUrl() + '/api/v1/chat/rooms', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const json = await res.json();
+
+                const listEl = document.getElementById('roomList' + panel);
+                listEl.innerHTML = '';
+
+                if (!json.data || json.data.length === 0) {
+                    listEl.innerHTML = '<div style="color: #555; padding: 8px;">No rooms found</div>';
+                    return;
+                }
+
+                json.data.forEach(room => {
+                    const item = document.createElement('div');
+                    item.className = 'room-item' + (room.roomId === state[panel].selectedRoomId ? ' selected' : '');
+                    item.dataset.roomId = room.roomId;
+                    item.onclick = () => enterRoom(panel, room.roomId, room.otherUserId);
+
+                    const preview = room.lastMessageContent
+                        ? (room.lastMessageContent.length > 20 ? room.lastMessageContent.substring(0, 20) + '...' : room.lastMessageContent)
+                        : 'No messages yet';
+
+                    const badge = room.unreadCount > 0
+                        ? `<span class="badge">${room.unreadCount}</span>`
+                        : '';
+
+                    item.innerHTML = `
+                        <div class="room-info">
+                            <div class="room-name">${room.otherUserId || room.roomId.substring(0, 8)}${badge}</div>
+                            <div class="room-preview">${preview}</div>
+                        </div>
+                        <div class="room-time">${formatTime(room.lastMessageAt)}</div>
+                    `;
+                    listEl.appendChild(item);
+                });
+            } catch (e) {
+                appendChat(panel, 'Failed to load rooms: ' + e.message, 'msg-error');
+            }
+        }
+
+        async function createNewRoom() {
+            const userIdB = document.getElementById('userIdB').value;
+            const token = document.getElementById('tokenA').value;
+            if (!userIdB) { appendChat('A', 'User B ID required', 'msg-error'); return; }
+
+            try {
+                const res = await fetch(getServerUrl() + '/api/v1/chat/rooms/direct/' + userIdB, {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const json = await res.json();
+
+                if (json.data && json.data.roomId) {
+                    appendChat('A', 'Room created: ' + json.data.roomId, 'msg-info');
+                    await loadRooms('A');
+                    await enterRoom('A', json.data.roomId, userIdB);
+                } else {
+                    appendChat('A', 'Response: ' + JSON.stringify(json), 'msg-error');
+                }
+            } catch (e) {
+                appendChat('A', 'Error: ' + e.message, 'msg-error');
+            }
+        }
+
+        // ─────────────────────────────────────────
+        // Enter Room (= 채팅방 입장)
+        //   1. 읽음 처리 (readCount 표시)
+        //   2. 메시지 이력 로드
+        //   3. STOMP 구독 (이전 방 해제)
+        //   4. 룸 리스트 새로고침 (배지 갱신)
+        // ─────────────────────────────────────────
+        async function enterRoom(panel, roomId, otherUserId) {
+            const token = document.getElementById('token' + panel).value;
+            const userId = document.getElementById('userId' + panel).value;
+
+            const prevRoomId = state[panel].selectedRoomId; // 이전 방 ID 저장
+            state[panel].selectedRoomId = roomId;
+            document.getElementById('currentRoom' + panel).textContent = '(' + (otherUserId || roomId.substring(0, 8)) + ')';
+            document.getElementById('chat' + panel).innerHTML = '';
+
+            try {
+                // Step 1: 읽음 처리
+                const readRes = await fetch(getServerUrl() + '/api/v1/chat/rooms/' + roomId + '/read', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const readJson = await readRes.json();
+                const readCount = readJson.data ? readJson.data.readCount : 0;
+                if (readCount > 0) {
+                    appendChat(panel, 'Read ' + readCount + ' unread messages', 'msg-read');
+                }
+
+                // Step 2: 메시지 이력 로드
+                const res = await fetch(getServerUrl() + '/api/v1/chat/rooms/' + roomId + '/messages', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const json = await res.json();
+
+                if (json.data && Array.isArray(json.data)) {
+                    const messages = [...json.data].reverse();
+                    messages.forEach(msg => appendMessage(panel, msg, userId));
+                }
+
+                // Step 3: STOMP 구독 변경
+                if (state[panel].client && state[panel].client.connected) {
+                    // 이전 방 퇴장
+                    if (prevRoomId) {
+                        state[panel].client.send('/pub/chat/leave', {}, '{}');
+                    }
+                    // 이전 채팅방 구독 해제 (알림 구독은 유지)
+                    if (state[panel].roomSub) { 
+                        state[panel].roomSub.unsubscribe(); 
+                        state[panel].roomSub = null; 
+                    }
+
+                    // 새 방 입장
+                    state[panel].client.send('/pub/chat/enter', {}, JSON.stringify({ roomId: roomId }));
+
+                    // 메시지 구독
+                    // [React Native]
+                    //   내 메시지: clientMessageId로 낙관적 메시지 찾아서 서버 데이터로 교체
+                    //     const idx = messages.findIndex(m => m.clientMessageId === msg.clientMessageId);
+                    //     if (idx !== -1) setMessages(prev => prev.map((m, i) => i === idx ? { ...msg } : m));
+                    //     else addMessage(msg);  // 다른 기기에서 보낸 경우
+                    //   상대 메시지: addMessage({ ...msg, unreadCount: msg.unreadCount - 1 })
+                    const msgSub = state[panel].client.subscribe('/sub/chat/room/' + roomId, function (frame) {
+                        const msg = JSON.parse(frame.body);
+                        if (msg.senderId === userId) {
+                            // 낙관적으로 렌더링한 메시지를 서버 데이터(unreadCount, createdAt)로 업데이트
+                            const optimistic = document.querySelector('#chat' + panel + ' [data-client-message-id="' + msg.clientMessageId + '"]');
+                            if (optimistic) {
+                                optimistic.dataset.createdAt = msg.createdAt;
+                                const span = optimistic.querySelector('.unread-count');
+                                if (span) {
+                                    span.dataset.count = msg.unreadCount;
+                                    span.textContent = msg.unreadCount > 0 ? ' [' + msg.unreadCount + ']' : '';
+                                }
+                            } else {
+                                // 다른 기기에서 전송된 경우 (clientMessageId 없음)
+                                appendMessage(panel, msg, userId);
+                            }
+                        } else {
+                            // 수신자는 메시지를 바로 읽은 것이므로 unreadCount -1 처리 후 표시
+                            appendMessage(panel, { ...msg, unreadCount: Math.max(0, msg.unreadCount - 1) }, userId);
+                            // 상대방 메시지 수신 → 읽음 처리 전송
+                            state[panel].client.send('/pub/chat/read', {}, JSON.stringify({ roomId: roomId }));
+                        }
+                        loadRooms(panel);
+                    });
+
+                    // 읽음 이벤트 구독
+                    // [React Native] DOM 대신 zustand store의 messages state를 직접 업데이트
+                    // useChatStore.getState().updateUnreadCount(receipt.readAt)
+                    // → store 내부: messages.map(msg =>
+                    //     msg.createdAt <= readAt && msg.unreadCount > 0
+                    //       ? { ...msg, unreadCount: msg.unreadCount - 1 } : msg
+                    //   )
+                    const readSub = state[panel].client.subscribe('/sub/chat/room/' + roomId + '/read', function (frame) {
+                        const receipt = JSON.parse(frame.body);
+                        if (receipt.userId !== userId) {
+                            // readAt 이전 메시지의 unreadCount -1 (단체 채팅: 읽을 때마다 감소)
+                            document.querySelectorAll('#chat' + panel + ' [data-created-at]').forEach(el => {
+                                if (el.dataset.createdAt <= receipt.readAt) {
+                                    const span = el.querySelector('.unread-count');
+                                    if (span) {
+                                        const next = parseInt(span.dataset.count || '0') - 1;
+                                        span.dataset.count = next;
+                                        span.textContent = next > 0 ? ' [' + next + ']' : '';
+                                    }
+                                }
+                            });
+                        }
+                    });
+
+                    // msgSub, readSub을 하나로 묶어 저장 → 방 전환/퇴장 시 roomSub.unsubscribe() 한 번으로 둘 다 해제
+                    state[panel].roomSub = { unsubscribe: () => { msgSub.unsubscribe(); readSub.unsubscribe(); } };
+                    appendChat(panel, 'Subscribed to room', 'msg-info');
+                }
+
+                // Step 4: 룸 리스트 새로고침 (unread 배지 갱신)
+                await loadRooms(panel);
+
+            } catch (e) {
+                appendChat(panel, 'Failed to enter room: ' + e.message, 'msg-error');
+            }
+        }
+
+        // ─────────────────────────────────────────
+        // UUID 생성 (클라이언트 메시지 ID용)
+        // ─────────────────────────────────────────
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+            });
+        }
+
+        // 채팅방 목록의 마지막 메시지 낙관적 업데이트
+        function updateRoomListOptimistic(panel, roomId, content) {
+            const listEl = document.getElementById('roomList' + panel);
+            const item = listEl.querySelector('[data-room-id="' + roomId + '"]');
+            if (!item) return;
+            const previewEl = item.querySelector('.room-preview');
+            if (previewEl) {
+                previewEl.textContent = content.length > 20 ? content.substring(0, 20) + '...' : content;
+            }
+            const timeEl = item.querySelector('.room-time');
+            if (timeEl) {
+                timeEl.textContent = formatTime(new Date().toISOString());
+            }
+            // 목록 최상단으로 이동
+            listEl.insertBefore(item, listEl.firstChild);
+        }
+
+        // ─────────────────────────────────────────
+        // Send Message
+        // ─────────────────────────────────────────
+        function sendMsg(panel) {
+            const userId = document.getElementById('userId' + panel).value;
+            const input = document.getElementById('input' + panel);
+            const content = input.value;
+            const roomId = state[panel].selectedRoomId;
+
+            if (!state[panel].client || !state[panel].client.connected) { appendChat(panel, 'Not connected', 'msg-error'); return; }
+            if (!roomId) { appendChat(panel, 'Select a room first', 'msg-error'); return; }
+            if (!content) return;
+
+            // clientMessageId 생성 — 서버 응답과 매칭하여 낙관적 메시지 교체
+            const clientMessageId = generateUUID();
+
+            // 낙관적 업데이트: 서버 응답 전에 즉시 UI에 렌더링
+            // [React Native] useChatStore.getState().addMessage({ ...optimisticMsg, pending: true })
+            appendMessage(panel, {
+                senderId: userId,
+                content: content,
+                createdAt: nowLocalIso(),
+                clientMessageId: clientMessageId,
+                unreadCount: 0  // 서버 응답으로 실제 값 교체됨
+            }, userId);
+
+            // 채팅방 목록 마지막 메시지 낙관적 업데이트
+            updateRoomListOptimistic(panel, roomId, content);
+
+            state[panel].client.send('/pub/chat/send', {}, JSON.stringify({
+                roomId: roomId,
+                content: content,
+                clientMessageId: clientMessageId
+            }));
+
+            input.value = '';
+            input.focus();
+        }
+    </script>
+</body>
+</html>

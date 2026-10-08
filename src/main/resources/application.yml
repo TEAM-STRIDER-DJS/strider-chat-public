@@ -1,0 +1,77 @@
+server:
+  port: 8002
+
+spring:
+  application:
+    name: strider-chat
+  profiles:
+    # active: local   # 로컬 개발 환경 관련 설정 정보
+    include: secret  # DB 비밀번호 등 민감 정보는 application-secret.yml로 분리
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/strider?currentSchema=chat}
+    username: ${DB_USERNAME:strider}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    show-sql: false
+    database: postgresql
+    hibernate:
+      # 개발 중에는 update (테이블 자동 생성/수정)
+      # 프로덕션에서는 validate 로 변경
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        default_schema: chat
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      repositories:
+        enabled: false
+      port: 6379
+
+  kafka:
+    bootstrap-servers: kafka:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: "1"
+      properties:
+        spring.json.add.type.headers: false
+    consumer:
+      group-id: strider-chat-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.strider.chat.kafka.event"
+
+chat:
+  kafka:
+    topic:
+      message-event: chat.message.event
+      push-notification-event: chat.push-notification.event
+
+  outbox:
+    scheduler-delay-ms: 5000
+    max-retry-count: 5
+
+  # 접속 상태(Redis) 키 만료 설정
+  #   ttl-seconds        : online:user / active:room 키 수명. 서버가 비정상 종료돼도
+  #                        유령 온라인 상태가 이 시간 안에 정리된다.
+  #   refresh-interval-ms: 연결 중인 사용자의 만료 시각을 미루는 주기. TTL의 1/3 이하로 둔다.
+  presence:
+    ttl-seconds: 60
+    refresh-interval-ms: 20000
+
+logging:
+  level:
+    root: INFO
+    com.strider: DEBUG
+    org.springframework.web.socket: DEBUG
+    org.springframework.messaging.simp: DEBUG
+    # org.hibernate.SQL: OFF
+    # org.hibernate.orm.jdbc.bind: OFF
+    # org.hibernate: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %logger{36} - %msg%n"

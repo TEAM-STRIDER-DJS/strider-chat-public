@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Group Chat Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: monospace; padding: 14px; background: #0d1117; color: #c9d1d9; font-size: 13px; }
+        h2 { color: #58a6ff; margin-bottom: 10px; font-size: 16px; }
+
+        label { display: inline-block; min-width: 70px; color: #8b949e; }
+        input, textarea, select {
+            background: #0d1117; border: 1px solid #30363d; color: #c9d1d9;
+            padding: 4px 7px; border-radius: 4px; font-family: monospace; font-size: 12px;
+        }
+        input:focus, textarea:focus { outline: none; border-color: #58a6ff; }
+        button {
+            border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer;
+            font-size: 12px; font-family: monospace; color: #fff; margin: 2px;
+        }
+        .btn-blue   { background: #1f6feb; } .btn-blue:hover   { background: #388bfd; }
+        .btn-green  { background: #238636; } .btn-green:hover  { background: #2ea043; }
+        .btn-red    { background: #b91c1c; } .btn-red:hover    { background: #dc2626; }
+        .btn-gray   { background: #333; }    .btn-gray:hover   { background: #444; }
+
+        /* 유저 카드 */
+        .users { display: flex; gap: 8px; margin-bottom: 10px; }
+        .user-card { flex: 1; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 10px; }
+        .user-card.user-a { border-top: 3px solid #58a6ff; }
+        .user-card.user-b { border-top: 3px solid #3fb950; }
+        .user-card.user-c { border-top: 3px solid #d2a8ff; }
+        .user-title { font-size: 12px; font-weight: bold; margin-bottom: 6px; }
+        .user-a .user-title { color: #58a6ff; }
+        .user-b .user-title { color: #3fb950; }
+        .user-c .user-title { color: #d2a8ff; }
+        .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+        .dot-on  { background: #3fb950; }
+        .dot-off { background: #6e7681; }
+
+        /* 메인 레이아웃 */
+        .main { display: flex; gap: 8px; height: calc(100vh - 220px); min-height: 450px; }
+
+        /* 왼쪽: API 조작 */
+        .col-left { width: 250px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+
+        /* 유저 패널 3개 */
+        .col-users { flex: 1; display: flex; gap: 8px; min-width: 0; }
+        .user-panel { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+
+        .box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 10px; }
+        .box h4 { color: #8b949e; font-size: 11px; text-transform: uppercase; margin-bottom: 7px; border-bottom: 1px solid #21262d; padding-bottom: 5px; }
+
+        .panel-header {
+            background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+            padding: 8px 10px; font-size: 12px; font-weight: bold;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .panel-a .panel-header { border-top: 3px solid #58a6ff; color: #58a6ff; }
+        .panel-b .panel-header { border-top: 3px solid #3fb950; color: #3fb950; }
+        .panel-c .panel-header { border-top: 3px solid #d2a8ff; color: #d2a8ff; }
+
+        /* 방 목록 */
+        .room-list-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 8px; }
+        .room-list { overflow-y: auto; max-height: 130px; }
+        .room-item { padding: 5px 6px; border-radius: 4px; cursor: pointer; border-bottom: 1px solid #21262d; }
+        .room-item:hover { background: #21262d; }
+        .room-item.selected { background: #1c2a3e; border-left: 3px solid #58a6ff; }
+        .panel-b .room-item.selected { border-left-color: #3fb950; background: #0d2015; }
+        .panel-c .room-item.selected { border-left-color: #d2a8ff; background: #1e133a; }
+        .room-name { font-size: 12px; }
+        .room-type { font-size: 10px; color: #6e7681; }
+        .room-unread { font-size: 10px; color: #e94560; }
+
+        /* 채팅 */
+        .chat-panel { flex: 1; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 8px; display: flex; flex-direction: column; min-height: 0; }
+        .chat-box { flex: 1; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; padding: 8px; overflow-y: auto; font-size: 12px; line-height: 1.7; min-height: 0; }
+        .send-row { display: flex; gap: 5px; margin-top: 5px; }
+        .send-row input { flex: 1; }
+
+        .msg-a    { color: #58a6ff; }
+        .msg-b    { color: #3fb950; }
+        .msg-c    { color: #d2a8ff; }
+        .msg-sys  { color: #f0883e; font-style: italic; }
+        .msg-err  { color: #f85149; }
+        .unread-cnt { color: #6e7681; font-size: 10px; }
+
+        /* 역할 선택 버튼 */
+        .user-btn { padding: 2px 8px; font-size: 11px; border-radius: 10px; border: 1px solid #30363d; cursor: pointer; background: #0d1117; color: #8b949e; }
+        .user-btn.active-a { background: #1c2a3e; color: #58a6ff; border-color: #58a6ff; }
+        .user-btn.active-b { background: #0d2015; color: #3fb950; border-color: #3fb950; }
+        .user-btn.active-c { background: #1e133a; color: #d2a8ff; border-color: #d2a8ff; }
+        .user-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+        .field-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+        .field-row label { min-width: 60px; }
+
+        /* 멤버/초대 목록 */
+        .member-list { max-height: 100px; overflow-y: auto; margin-top: 6px; }
+        .member-item { padding: 4px 6px; font-size: 11px; display: flex; justify-content: space-between; }
+        .member-item:nth-child(odd) { background: #0d1117; border-radius: 3px; }
+        .member-uid { color: #c9d1d9; }
+        .member-time { color: #6e7681; font-size: 10px; }
+        .invitable-list { max-height: 120px; overflow-y: auto; margin-top: 6px; }
+        .invitable-item { padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 11px; }
+        .invitable-item:hover { background: #21262d; }
+        .invitable-item.disabled { opacity: 0.5; cursor: not-allowed; }
+        .invitable-check { width: 13px; height: 13px; accent-color: #3fb950; }
+        .already-member { color: #f0883e; font-size: 10px; }
+
+        /* 시스템 로그 */
+        .sys-log { flex: 1; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; padding: 8px; overflow-y: auto; font-size: 11px; line-height: 1.6; min-height: 80px; }
+    </style>
+</head>
+<body>
+    <h2>Group Chat Test</h2>
+
+    <!-- 유저 설정 -->
+    <div class="users">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px;display:flex;align-items:center;gap:10px;">
+            <label style="min-width:70px;">Server</label>
+            <input id="serverUrl" value="http://localhost:8002" style="width:220px;" />
+        </div>
+        <div class="user-card user-a">
+            <div class="user-title"><span class="status-dot dot-off" id="dotA"></span>User A</div>
+            <div class="field-row"><label>User ID</label><input id="userIdA" placeholder="user-a" style="width:130px;" value=""/></div>
+            <div class="field-row"><label>Token</label><input id="tokenA" placeholder="JWT" style="width:180px;" value=""/></div>
+            <button class="btn-blue" onclick="connect('A')">Connect</button>
+            <button class="btn-gray" onclick="disconnect('A')">Disconnect</button>
+        </div>
+        <div class="user-card user-b">
+            <div class="user-title"><span class="status-dot dot-off" id="dotB"></span>User B</div>
+            <div class="field-row"><label>User ID</label><input id="userIdB" placeholder="user-b" style="width:130px;" value=""/></div>
+            <div class="field-row"><label>Token</label><input id="tokenB" placeholder="JWT" style="width:180px;" value=""/></div>
+            <button class="btn-green" onclick="connect('B')">Connect</button>
+            <button class="btn-gray" onclick="disconnect('B')">Disconnect</button>
+        </div>
+        <div class="user-card user-c">
+            <div class="user-title"><span class="status-dot dot-off" id="dotC"></span>User C</div>
+            <div class="field-row"><label>User ID</label><input id="userIdC" placeholder="user-c" style="width:130px;" value=""/></div>
+            <div class="field-row"><label>Token</label><input id="tokenC" placeholder="JWT" style="width:180px;" value=""/></div>
+            <button style="background:#7c3aed;" onclick="connect('C')">Connect</button>
+            <button class="btn-gray" onclick="disconnect('C')">Disconnect</button>
+        </div>
+    </div>
+
+    <!-- 메인 -->
+    <div class="main">
+
+        <!-- 왼쪽: API 조작 -->
+        <div class="col-left">
+
+            <!-- 그룹방 생성 -->
+            <div class="box">
+                <h4>그룹방 생성</h4>
+                <div class="field-row">
+                    <label>생성 유저</label>
+                    <div>
+                        <button class="user-btn active-a" id="createAs-A" onclick="setCreateAs('A')">A</button>
+                        <button class="user-btn" id="createAs-B" onclick="setCreateAs('B')">B</button>
+                        <button class="user-btn" id="createAs-C" onclick="setCreateAs('C')">C</button>
+                    </div>
+                </div>
+                <div class="field-row">
+                    <label>방 이름</label>
+                    <input id="createRoomName" placeholder="그룹방 이름" style="width:120px;"/>
+                </div>
+                <div style="margin-bottom:5px;">
+                    <div style="color:#8b949e;font-size:11px;margin-bottom:3px;">초대 멤버 ID (쉼표 구분)</div>
+                    <textarea id="createMemberIds" rows="2" style="width:100%;" placeholder="userId1, userId2"></textarea>
+                </div>
+                <button class="btn-blue" onclick="createGroupRoom()">그룹방 생성</button>
+            </div>
+
+            <!-- 선택된 채팅방 -->
+            <div class="box">
+                <h4>선택된 채팅방</h4>
+                <input id="targetRoomId" placeholder="방 클릭 시 자동 설정" style="width:100%;"/>
+            </div>
+
+            <!-- 멤버 목록 -->
+            <div class="box">
+                <h4>멤버 목록</h4>
+                <button class="btn-blue" onclick="getRoomMembers()">조회</button>
+                <div id="memberList" class="member-list"></div>
+            </div>
+
+            <!-- 초대 가능 목록 -->
+            <div class="box">
+                <h4>초대 가능 목록</h4>
+                <div class="field-row">
+                    <label>조회 유저</label>
+                    <div>
+                        <button class="user-btn active-a" id="invitableAs-A" onclick="setInvitableAs('A')">A</button>
+                        <button class="user-btn" id="invitableAs-B" onclick="setInvitableAs('B')">B</button>
+                        <button class="user-btn" id="invitableAs-C" onclick="setInvitableAs('C')">C</button>
+                    </div>
+                </div>
+                <button class="btn-blue" onclick="getInvitableUsers()">조회</button>
+                <button class="btn-green" onclick="inviteSelected()" style="margin-left:3px;">선택 초대</button>
+                <div id="invitableList" class="invitable-list"></div>
+            </div>
+
+            <!-- 퇴장 -->
+            <div class="box">
+                <h4>그룹방 퇴장</h4>
+                <div class="field-row">
+                    <label>퇴장 유저</label>
+                    <div>
+                        <button class="user-btn active-a" id="leaveAs-A" onclick="setLeaveAs('A')">A</button>
+                        <button class="user-btn" id="leaveAs-B" onclick="setLeaveAs('B')">B</button>
+                        <button class="user-btn" id="leaveAs-C" onclick="setLeaveAs('C')">C</button>
+                    </div>
+                </div>
+                <button class="btn-red" onclick="leaveGroupRoom()">퇴장</button>
+            </div>
+
+            <!-- 미디어 갤러리 조회 -->
+            <div class="box">
+                <h4>미디어 갤러리</h4>
+                <div class="field-row">
+                    <label>조회 유저</label>
+                    <div>
+                        <button class="user-btn active-a" id="galleryAs-A" onclick="setGalleryAs('A')">A</button>
+                        <button class="user-btn" id="galleryAs-B" onclick="setGalleryAs('B')">B</button>
+                        <button class="user-btn" id="galleryAs-C" onclick="setGalleryAs('C')">C</button>
+                    </div>
+                </div>
+                <button class="btn-blue" onclick="getGallery()">갤러리 조회</button>
+                <div id="galleryList" style="max-height:120px;overflow-y:auto;margin-top:5px;font-size:10px;color:#c9d1d9;"></div>
+            </div>
+
+            <!-- 시스템 로그 -->
+            <div class="box" style="flex:1;display:flex;flex-direction:column;min-height:80px;">
+                <h4>System Log <button class="btn-gray" style="float:right;font-size:10px;padding:1px 6px;" onclick="document.getElementById('sysLog').innerHTML=''">Clear</button></h4>
+                <div id="sysLog" class="sys-log"></div>
+            </div>
+        </div>
+
+        <!-- 유저별 패널 -->
+        <div class="col-users">
+
+            <!-- User A 패널 -->
+            <div class="user-panel panel-a">
+                <div class="panel-header">
+                    <span><span class="status-dot dot-off" id="dotPanelA"></span>User A</span>
+                    <button class="btn-gray" style="font-size:11px;padding:2px 7px;" onclick="loadRooms('A')">Load Rooms</button>
+                </div>
+                <div class="room-list-box">
+                    <div id="roomListA" class="room-list"><div style="color:#6e7681;font-size:11px;">Load Rooms 클릭</div></div>
+                </div>
+                <div class="chat-panel">
+                    <div id="chatBoxA" class="chat-box"></div>
+                    <div class="send-row">
+                        <input id="chatInputA" placeholder="메시지 (Enter)" onkeydown="if(event.key==='Enter') sendMsg('A')"/>
+                        <button class="btn-blue" onclick="sendMsg('A')">전송</button>
+                        <button style="background:#5a3a8a;font-size:11px;" onclick="sendMedia('A','IMAGE',1)" title="이미지 1장">🖼</button>
+                        <button style="background:#5a3a8a;font-size:11px;" onclick="sendMedia('A','IMAGE',3)" title="이미지 3장">🖼³</button>
+                        <button style="background:#5a3a8a;font-size:11px;" onclick="sendMedia('A','VIDEO',1)" title="동영상 1개">🎬</button>
+                        <button class="btn-gray" onclick="document.getElementById('chatBoxA').innerHTML=''">C</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- User B 패널 -->
+            <div class="user-panel panel-b">
+                <div class="panel-header">
+                    <span><span class="status-dot dot-off" id="dotPanelB"></span>User B</span>
+                    <button class="btn-gray" style="font-size:11px;padding:2px 7px;" onclick="loadRooms('B')">Load Rooms</button>
+                </div>
+                <div class="room-list-box">
+                    <div id="roomListB" class="room-list"><div style="color:#6e7681;font-size:11px;">Load Rooms 클릭</div></div>
+                </div>
+                <div class="chat-panel">
+                    <div id="chatBoxB" class="chat-box"></div>
+                    <div class="send-row">
+                        <input id="chatInputB" placeholder="메시지 (Enter)" onkeydown="if(event.key==='Enter') sendMsg('B')"/>
+                        <button class="btn-green" onclick="sendMsg('B')">전송</button>
+                        <button style="background:#5a3a8a;font-size:11px;" onclick="sendMedia('B','IMAGE',1)" title="이미지 1장">🖼</button>
+                        <button style="background:#5a3a8a;font-size:11px;" onclick="sendMedia('B','IMAGE',3)" title="이미지 3장">🖼³</button>
+                        <button style="background:#5a3a8a;font-size:11px;" onclick="sendMedia('B','VIDEO',1)" title="동영상 1개">🎬</button>
+                        <button class="btn-gray" onclick="document.getElementById('chatBoxB').innerHTML=''">C</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- User C 패널 -->
+            <div class="user-panel panel-c">
+                <div class="panel-header">
+                    <span><span class="status-dot dot-off" id="dotPanelC"></span>User C</span>
+                    <button class="btn-gray" style="font-size:11px;padding:2px 7px;" onclick="loadRooms('C')">Load Rooms</button>
+                </div>
+                <div class="room-list-box">
+                    <div id="roomListC" class="room-list"><div style="color:#6e7681;font-size:11px;">Load Rooms 클릭</div></div>
+                </div>
+                <div class="chat-panel">
+                    <div id="chatBoxC" class="chat-box"></div>
+                    <div class="send-row">
+                        <input id="chatInputC" placeholder="메시지 (Enter)" onkeydown="if(event.key==='Enter') sendMsg('C')"/>
+                        <button style="background:#7c3aed;" onclick="sendMsg('C')">전송</button>
+                        <button style="background:#5a3a8a;font-size:11px;" onclick="sendMedia('C','IMAGE',1)" title="이미지 1장">🖼</button>
+                        <button style="background:#5a3a8a;font-size:11px;" onclick="sendMedia('C','IMAGE',3)" title="이미지 3장">🖼³</button>
+                        <button style="background:#5a3a8a;font-size:11px;" onclick="sendMedia('C','VIDEO',1)" title="동영상 1개">🎬</button>
+                        <button class="btn-gray" onclick="document.getElementById('chatBoxC').innerHTML=''">C</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ──────────────────────────────────────────────────────
+        // 상태
+        // ──────────────────────────────────────────────────────
+        const panels = ['A', 'B', 'C'];
+        const state = {
+            A: { client: null, roomSub: null, notifSub: null, errorSub: null, selectedRoomId: null, memberCount: 0 },
+            B: { client: null, roomSub: null, notifSub: null, errorSub: null, selectedRoomId: null, memberCount: 0 },
+            C: { client: null, roomSub: null, notifSub: null, errorSub: null, selectedRoomId: null, memberCount: 0 },
+        };
+
+        let createAsUser    = 'A';
+        let invitableAsUser = 'A';
+        let leaveAsUser     = 'A';
+        let galleryAsUser   = 'A';
+
+        const panelColors = { A: '#58a6ff', B: '#3fb950', C: '#d2a8ff' };
+        const msgClsMap   = { A: 'msg-a', B: 'msg-b', C: 'msg-c' };
+
+        function getServer() { return document.getElementById('serverUrl').value.replace(/\/+$/, ''); }
+        function userId(p)   { return document.getElementById('userId' + p).value; }
+        function token(p)    { return document.getElementById('token' + p).value; }
+        function authHeader(p) { return { 'Authorization': 'Bearer ' + token(p) }; }
+
+        // ──────────────────────────────────────────────────────
+        // 역할 선택 버튼
+        // ──────────────────────────────────────────────────────
+        function setActiveBtn(prefix, panel) {
+            panels.forEach(p => {
+                const btn = document.getElementById(prefix + '-' + p);
+                if (!btn) return;
+                btn.className = 'user-btn';
+                if (p === panel) btn.classList.add('active-' + p.toLowerCase());
+            });
+        }
+        function setCreateAs(p)    { createAsUser = p;    setActiveBtn('createAs', p); }
+        function setInvitableAs(p) { invitableAsUser = p; setActiveBtn('invitableAs', p); }
+        function setLeaveAs(p)     { leaveAsUser = p;     setActiveBtn('leaveAs', p); }
+        function setGalleryAs(p)   { galleryAsUser = p;   setActiveBtn('galleryAs', p); }
+
+        // ──────────────────────────────────────────────────────
+        // 로그
+        // ──────────────────────────────────────────────────────
+        function log(text, cls = 'msg-sys') {
+            const box = document.getElementById('sysLog');
+            const t = new Date().toLocaleTimeString();
+            box.innerHTML += `<div class="${cls}">[${t}] ${text}</div>`;
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function appendMsg(msg, viewerPanel) {
+            const box = document.getElementById('chatBox' + viewerPanel);
+            const t = new Date(msg.createdAt).toLocaleTimeString();
+            const senderPanel = panels.find(p => userId(p) === msg.senderId);
+            const cls = senderPanel ? msgClsMap[senderPanel] : 'msg-sys';
+            const isMe = msg.senderId === userId(viewerPanel);
+            const sender = isMe ? '나' : (senderPanel ? 'User ' + senderPanel : msg.senderId);
+            const unread = `<span class="unread-cnt">${msg.unreadCount > 0 ? ' [' + msg.unreadCount + ']' : ''}</span>`;
+            const cmAttr = msg.clientMessageId ? ` data-client-message-id="${msg.clientMessageId}"` : '';
+            const preExcluded = (msg.preExcludedUserIds || []).join(',');
+            const typeTag = msg.messageType && msg.messageType !== 'TEXT'
+                ? ` <span style="color:#9e6eff;font-size:10px;">[${msg.messageType}]</span>` : '';
+            let mediaHtml = '';
+            if (msg.media && msg.media.length > 0) {
+                mediaHtml = msg.media.map(m => {
+                    const isVideo = m.mediaType === 'VIDEO';
+                    const icon = isVideo ? '🎬' : '🖼';
+                    const label = isVideo ? '동영상' : '이미지';
+                    // 작은 이미지: 이미지는 thumbnail, 영상은 preview
+                    const smallUrl = isVideo ? m.previewUrl : m.thumbnailUrl;
+                    const thumb = smallUrl
+                        ? `<img src="${smallUrl}" style="width:40px;height:40px;border-radius:3px;vertical-align:middle;margin-right:4px;">`
+                        : '<span style="color:#f85149;">(작은 이미지 없음)</span>';
+                    return `<div style="margin-left:16px;font-size:10px;color:#8b949e;">
+                        ${thumb}${icon} ${label} | original: <span style="color:#58a6ff;">${m.originalUrl}</span>
+                        | order:${m.sortOrder}</div>`;
+                }).join('');
+            }
+            box.innerHTML += `<div class="${cls}" data-created-at="${msg.createdAt}"${cmAttr} data-pre-excluded="${preExcluded}">[${t}] ${sender}${typeTag}: ${msg.content || ''}${unread}${mediaHtml}</div>`;
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function panelLog(p, text, cls = 'msg-sys') {
+            const box = document.getElementById('chatBox' + p);
+            const t = new Date().toLocaleTimeString();
+            box.innerHTML += `<div class="${cls}">[${t}] ${text}</div>`;
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function syncDot(p, on) {
+            document.getElementById('dot' + p).className = 'status-dot ' + (on ? 'dot-on' : 'dot-off');
+            document.getElementById('dotPanel' + p).className = 'status-dot ' + (on ? 'dot-on' : 'dot-off');
+        }
+
+        // ──────────────────────────────────────────────────────
+        // STOMP Connect / Disconnect
+        // ──────────────────────────────────────────────────────
+        function connect(p) {
+            const uid = userId(p);
+            const tok = token(p);
+            if (!uid || !tok) { log('User ' + p + ': ID와 Token을 입력하세요', 'msg-err'); return; }
+
+            const socket = new SockJS(getServer() + '/ws-chat-sockjs');
+            const client = Stomp.over(socket);
+            client.debug = null;
+
+            client.connect({ 'Authorization': 'Bearer ' + tok }, function () {
+                state[p].client = client;
+                syncDot(p, true);
+                log('User ' + p + ' (' + uid + ') 연결됨');
+
+                state[p].notifSub = client.subscribe('/sub/user/' + uid + '/notification', function (frame) {
+                    const notif = JSON.parse(frame.body);
+                    if (notif.type === 'NEW_MESSAGE') {
+                        const thumb = notif.previewImageUrl
+                            ? `<img src="${notif.previewImageUrl}" style="width:24px;height:24px;border-radius:3px;vertical-align:middle;margin-left:4px;">`
+                            : '';
+                        panelLog(p, '[알림] ' + notif.senderId + ': ' + (notif.preview || '') + thumb);
+                        loadRooms(p);
+                    }
+                });
+
+                // 서버 검증 실패(400 등) 수신 — STOMP는 REST와 달리 응답이 없으므로 별도 구독 필요
+                state[p].errorSub = client.subscribe('/sub/user/' + uid + '/error', function (frame) {
+                    const e = JSON.parse(frame.body);
+                    log('User ' + p + ' 거부됨 [' + e.code + '] ' + e.message, 'msg-err');
+                    panelLog(p, '[거부] ' + e.message);
+                });
+            }, function (err) {
+                log('User ' + p + ' 연결 실패: ' + err, 'msg-err');
+            });
+        }
+
+        function disconnect(p) {
+            if (!state[p].client) return;
+            if (state[p].selectedRoomId) state[p].client.send('/pub/chat/leave', {}, '{}');
+            state[p].client.disconnect(() => {
+                syncDot(p, false);
+                log('User ' + p + ' 연결 해제');
+            });
+            state[p].client = null;
+            if (state[p].roomSub)  { state[p].roomSub.unsubscribe();  state[p].roomSub = null; }
+            if (state[p].notifSub) { state[p].notifSub.unsubscribe(); state[p].notifSub = null; }
+            if (state[p].errorSub) { state[p].errorSub.unsubscribe(); state[p].errorSub = null; }
+            state[p].selectedRoomId = null;
+        }
+
+        // ──────────────────────────────────────────────────────
+        // 방 목록 로드
+        // ──────────────────────────────────────────────────────
+        async function loadRooms(p) {
+            if (!token(p)) { log('User ' + p + ' Token 없음', 'msg-err'); return; }
+            try {
+                const res = await fetch(getServer() + '/api/v1/chat/rooms', { headers: authHeader(p) });
+                const json = await res.json();
+                renderRoomList(p, json.data || []);
+            } catch (e) {
+                log('방 목록 로드 실패: ' + e.message, 'msg-err');
+            }
+        }
+
+        function renderRoomList(p, rooms) {
+            const list = document.getElementById('roomList' + p);
+            if (!rooms.length) { list.innerHTML = '<div style="color:#6e7681;font-size:11px;">채팅방 없음</div>'; return; }
+            list.innerHTML = '';
+            rooms.forEach(room => {
+                const el = document.createElement('div');
+                el.className = 'room-item' + (room.roomId === state[p].selectedRoomId ? ' selected' : '');
+                el.dataset.roomId = room.roomId;
+                const name = room.roomName || room.otherUserId || room.roomId.substring(0, 8);
+                const type = room.roomType || '';
+                const unread = room.unreadCount > 0 ? `<span class="room-unread">[${room.unreadCount}]</span>` : '';
+                const memberBadge = room.memberCount > 0 ? `<span style="color:#8b949e;font-size:10px;"> ${room.memberCount}</span>` : '';
+                const lastMsg = room.lastMessageContent ? `<div style="color:#6e7681;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${room.lastMessageContent}</div>` : '';
+                el.innerHTML = `<div class="room-name">${name}${memberBadge} ${unread}</div><div class="room-type">${type}</div>${lastMsg}`;
+                el.onclick = () => selectRoom(p, room.roomId, name, room.memberCount);
+                list.appendChild(el);
+            });
+        }
+
+        // ──────────────────────────────────────────────────────
+        // 방 선택
+        // ──────────────────────────────────────────────────────
+        function selectRoom(p, roomId, name, memberCount) {
+            // 공유 targetRoomId 업데이트
+            document.getElementById('targetRoomId').value = roomId;
+
+            // 해당 패널에서만 selected 표시
+            document.querySelectorAll('#roomList' + p + ' .room-item').forEach(el => {
+                el.classList.toggle('selected', el.dataset.roomId === roomId);
+            });
+
+            state[p].memberCount = memberCount || 0;
+            log('User ' + p + ' → 방 선택: ' + name);
+            enterRoom(p, roomId);
+            updateRoleButtons(roomId);
+        }
+
+        function getRoomId() {
+            const v = document.getElementById('targetRoomId').value.trim();
+            if (!v) { log('Room ID를 먼저 선택하거나 입력하세요', 'msg-err'); return null; }
+            return v;
+        }
+
+        // ──────────────────────────────────────────────────────
+        // 채팅방 입장 + STOMP 구독
+        // ──────────────────────────────────────────────────────
+        async function enterRoom(p, roomId) {
+            const tok = token(p);
+            const uid = userId(p);
+            if (!tok || !uid) { log('User ' + p + ' 설정이 없습니다', 'msg-err'); return; }
+
+            try {
+                await fetch(getServer() + '/api/v1/chat/rooms/' + roomId + '/read', {
+                    method: 'POST', headers: authHeader(p)
+                });
+                loadRooms(p);
+
+                const res = await fetch(getServer() + '/api/v1/chat/rooms/' + roomId + '/messages', {
+                    headers: authHeader(p)
+                });
+                const json = await res.json();
+                if (json.data) {
+                    document.getElementById('chatBox' + p).innerHTML = '';
+                    [...json.data].reverse().forEach(msg => appendMsg(msg, p));
+                }
+
+                if (state[p].client && state[p].client.connected) {
+                    const prev = state[p].selectedRoomId;
+                    if (prev) state[p].client.send('/pub/chat/leave', {}, '{}');
+                    if (state[p].roomSub) { state[p].roomSub.unsubscribe(); state[p].roomSub = null; }
+
+                    state[p].client.send('/pub/chat/enter', {}, JSON.stringify({ roomId }));
+                    state[p].selectedRoomId = roomId;
+
+                    const msgSub = state[p].client.subscribe('/sub/chat/room/' + roomId, function (frame) {
+                        const msg = JSON.parse(frame.body);
+                        if (msg.senderId === uid) {
+                            const opt = document.querySelector('#chatBox' + p + ' [data-client-message-id="' + msg.clientMessageId + '"]');
+                            if (opt) {
+                                opt.dataset.createdAt = msg.createdAt;
+                                opt.dataset.preExcluded = (msg.preExcludedUserIds || []).join(',');
+                                const sp = opt.querySelector('.unread-cnt');
+                                if (sp) sp.textContent = msg.unreadCount > 0 ? ' [' + msg.unreadCount + ']' : '';
+                            } else {
+                                appendMsg(msg, p);
+                            }
+                        } else {
+                            appendMsg(msg, p);
+                            state[p].client.send('/pub/chat/read', {}, JSON.stringify({ roomId }));
+                        }
+                        loadRooms(p);
+                    });
+
+                    const readSub = state[p].client.subscribe('/sub/chat/room/' + roomId + '/read', function (frame) {
+                        const receipt = JSON.parse(frame.body);
+                        if (receipt.userId !== uid) {
+                            document.querySelectorAll('#chatBox' + p + ' [data-created-at]').forEach(el => {
+                                if (el.dataset.createdAt <= receipt.readAt) {
+                                    // 서버가 broadcast 시 이미 제외한 active viewer면 차감 skip (이중 차감 방지)
+                                    const preExcluded = (el.dataset.preExcluded || '').split(',').filter(Boolean);
+                                    if (preExcluded.includes(receipt.userId)) return;
+                                    const sp = el.querySelector('.unread-cnt');
+                                    if (sp) {
+                                        const next = parseInt(sp.textContent.replace(/\D/g, '') || '0') - 1;
+                                        sp.textContent = next > 0 ? ' [' + next + ']' : '';
+                                    }
+                                }
+                            });
+                        }
+                    });
+
+                    state[p].roomSub = { unsubscribe: () => { msgSub.unsubscribe(); readSub.unsubscribe(); } };
+                }
+            } catch (e) {
+                log('User ' + p + ' 방 입장 실패: ' + e.message, 'msg-err');
+            }
+        }
+
+        // ──────────────────────────────────────────────────────
+        // 그룹방 생성
+        // ──────────────────────────────────────────────────────
+        async function createGroupRoom() {
+            const p = createAsUser;
+            const roomName = document.getElementById('createRoomName').value.trim();
+            const rawIds = document.getElementById('createMemberIds').value.trim();
+            if (!roomName) { log('방 이름을 입력하세요', 'msg-err'); return; }
+            if (!rawIds)   { log('초대할 멤버 ID를 입력하세요', 'msg-err'); return; }
+            const memberIds = rawIds.split(',').map(s => s.trim()).filter(Boolean);
+            try {
+                const res = await fetch(getServer() + '/api/v1/chat/rooms/group', {
+                    method: 'POST',
+                    headers: { ...authHeader(p), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ roomName, memberIds })
+                });
+                const json = await res.json();
+                if (json.data && json.data.roomId) {
+                    log('그룹방 생성 완료 | 방 이름: ' + json.data.roomName + ' | 생성자: User ' + p + ' (' + userId(p) + ') | 초대된 멤버: ' + memberIds.join(', '));
+                    document.getElementById('targetRoomId').value = json.data.roomId;
+                    panels.forEach(x => loadRooms(x));
+                } else {
+                    log('그룹방 생성 응답: ' + JSON.stringify(json), 'msg-err');
+                }
+            } catch (e) {
+                log('그룹방 생성 실패: ' + e.message, 'msg-err');
+            }
+        }
+
+        // ──────────────────────────────────────────────────────
+        // 멤버 목록 조회
+        // ──────────────────────────────────────────────────────
+        async function getRoomMembers() {
+            const p = panels.find(x => token(x)) || 'A';
+            const roomId = getRoomId();
+            if (!roomId) return;
+            try {
+                const res = await fetch(getServer() + '/api/v1/chat/rooms/' + roomId + '/members', { headers: authHeader(p) });
+                const json = await res.json();
+                const members = json.data || [];
+                const list = document.getElementById('memberList');
+                list.innerHTML = members.length
+                    ? members.map(m => `<div class="member-item"><span class="member-uid">${m.userId}</span><span class="member-time">${formatTime(m.joinedAt)}</span></div>`).join('')
+                    : '<div style="color:#6e7681;font-size:11px;">멤버 없음</div>';
+                log('멤버 목록 조회 (' + members.length + '명)');
+            } catch (e) {
+                log('멤버 목록 조회 실패: ' + e.message, 'msg-err');
+            }
+        }
+
+        // ──────────────────────────────────────────────────────
+        // 초대 가능 목록
+        // ──────────────────────────────────────────────────────
+        async function getInvitableUsers() {
+            const p = invitableAsUser;
+            const roomId = getRoomId();
+            if (!roomId) return;
+            try {
+                const res = await fetch(getServer() + '/api/v1/chat/rooms/' + roomId + '/members/invitable', { headers: authHeader(p) });
+                const json = await res.json();
+                const users = json.data || [];
+                const list = document.getElementById('invitableList');
+                list.innerHTML = users.length
+                    ? users.map(u => `
+                        <div class="invitable-item ${u.alreadyMember ? 'disabled' : ''}" onclick="toggleInvite(this, '${u.userId}', ${u.alreadyMember})">
+                            <input type="checkbox" class="invitable-check" data-uid="${u.userId}" ${u.alreadyMember ? 'disabled' : ''}/>
+                            <span>${u.nickname || u.userId}</span>
+                            ${u.alreadyMember ? '<span class="already-member">이미 멤버</span>' : ''}
+                        </div>`).join('')
+                    : '<div style="color:#6e7681;font-size:11px;">초대 가능 사용자 없음</div>';
+                log('초대 가능 목록 조회 (' + users.length + '명)');
+            } catch (e) {
+                log('초대 가능 목록 조회 실패: ' + e.message, 'msg-err');
+            }
+        }
+
+        function toggleInvite(el, uid, alreadyMember) {
+            if (alreadyMember) return;
+            const cb = el.querySelector('.invitable-check');
+            cb.checked = !cb.checked;
+        }
+
+        async function inviteSelected() {
+            const p = invitableAsUser;
+            const roomId = getRoomId();
+            if (!roomId) return;
+            const checked = document.querySelectorAll('#invitableList .invitable-check:checked');
+            const memberIds = Array.from(checked).map(cb => cb.dataset.uid);
+            if (!memberIds.length) { log('초대할 사용자를 선택하세요', 'msg-err'); return; }
+            try {
+                const res = await fetch(getServer() + '/api/v1/chat/rooms/' + roomId + '/members', {
+                    method: 'POST',
+                    headers: { ...authHeader(p), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ memberIds })
+                });
+                const json = await res.json();
+                if (!res.ok) { log('멤버 초대 실패: ' + JSON.stringify(json), 'msg-err'); return; }
+                const invited = (json.data || []).map(m => m.userId).join(', ');
+                log('멤버 초대 완료 | 초대한 사람: User ' + p + ' (' + userId(p) + ') | 초대된 멤버: ' + invited);
+                getRoomMembers();
+                updateRoleButtons(roomId);
+                panels.forEach(x => loadRooms(x));
+            } catch (e) {
+                log('초대 실패: ' + e.message, 'msg-err');
+            }
+        }
+
+        // ──────────────────────────────────────────────────────
+        // 그룹방 퇴장
+        // ──────────────────────────────────────────────────────
+        async function leaveGroupRoom() {
+            const p = leaveAsUser;
+            const roomId = getRoomId();
+            if (!roomId) return;
+            if (!confirm('User ' + p + '이(가) 그룹방에서 퇴장합니다. 계속하시겠습니까?')) return;
+            try {
+                await fetch(getServer() + '/api/v1/chat/rooms/' + roomId + '/members/me', {
+                    method: 'DELETE', headers: authHeader(p)
+                });
+                log('User ' + p + ' 퇴장 완료');
+                if (state[p].selectedRoomId === roomId) {
+                    if (state[p].client) state[p].client.send('/pub/chat/leave', {}, '{}');
+                    if (state[p].roomSub) { state[p].roomSub.unsubscribe(); state[p].roomSub = null; }
+                    state[p].selectedRoomId = null;
+                }
+                updateRoleButtons(roomId);
+                panels.forEach(x => loadRooms(x));
+            } catch (e) {
+                log('퇴장 실패: ' + e.message, 'msg-err');
+            }
+        }
+
+        // ──────────────────────────────────────────────────────
+        // 미디어 갤러리 조회
+        // ──────────────────────────────────────────────────────
+        async function getGallery() {
+            const p = galleryAsUser;
+            const roomId = getRoomId();
+            if (!roomId) { log('채팅방을 먼저 선택하세요', 'msg-err'); return; }
+            try {
+                const res = await fetch(getServer() + '/api/v1/chat/rooms/' + roomId + '/media?size=20', {
+                    headers: authHeader(p)
+                });
+                const json = await res.json();
+                const box = document.getElementById('galleryList');
+                if (!res.ok) { box.innerHTML = `<div style="color:#f85149;">오류 ${res.status}: ${JSON.stringify(json)}</div>`; return; }
+                const items = json.data || [];
+                if (items.length === 0) { box.innerHTML = '<div style="color:#6e7681;">미디어 없음</div>'; return; }
+                box.innerHTML = items.map(m => {
+                    const icon = m.mediaType === 'VIDEO' ? '🎬' : '🖼';
+                    return `<div style="border-bottom:1px solid #21262d;padding:3px 0;">
+                        ${icon} <span style="color:#9e6eff;">${m.mediaType}</span>
+                        <span style="color:#58a6ff;word-break:break-all;">${m.originalUrl}</span>
+                        <span style="color:#6e7681;"> | ${m.createdAt || ''}</span>
+                    </div>`;
+                }).join('');
+                log('갤러리 조회: ' + items.length + '건');
+            } catch (e) {
+                log('갤러리 조회 실패: ' + e.message, 'msg-err');
+            }
+        }
+
+        // ──────────────────────────────────────────────────────
+        // 멤버 여부에 따라 역할 버튼 활성/비활성화
+        // ──────────────────────────────────────────────────────
+        async function updateRoleButtons(roomId) {
+            ['A', 'B', 'C'].forEach(p => {
+                ['invitableAs', 'leaveAs'].forEach(prefix => {
+                    const btn = document.getElementById(prefix + '-' + p);
+                    if (btn) { btn.disabled = true; btn.style.opacity = '0.35'; btn.style.cursor = 'not-allowed'; }
+                });
+            });
+            if (!roomId) return;
+            let members = null;
+            for (const p of panels) {
+                if (!token(p)) continue;
+                try {
+                    const res = await fetch(getServer() + '/api/v1/chat/rooms/' + roomId + '/members', { headers: authHeader(p) });
+                    const json = await res.json();
+                    if (json.data) { members = json.data; break; }
+                } catch (e) {}
+            }
+            if (!members) return;
+            const memberUserIds = new Set(members.map(m => m.userId));
+            ['A', 'B', 'C'].forEach(p => {
+                const isMember = !!userId(p) && memberUserIds.has(userId(p));
+                ['invitableAs', 'leaveAs'].forEach(prefix => {
+                    const btn = document.getElementById(prefix + '-' + p);
+                    if (btn) { btn.disabled = !isMember; btn.style.opacity = isMember ? '1' : '0.35'; btn.style.cursor = isMember ? 'pointer' : 'not-allowed'; }
+                });
+            });
+        }
+
+        // ──────────────────────────────────────────────────────
+        // 메시지 전송
+        // ──────────────────────────────────────────────────────
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                const r = Math.random() * 16 | 0;
+                return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+            });
+        }
+
+        function sendMsg(p) {
+            const input = document.getElementById('chatInput' + p);
+            const content = input.value.trim();
+            const roomId = state[p].selectedRoomId;
+            if (!state[p].client || !state[p].client.connected) { log('User ' + p + ' 미연결 상태', 'msg-err'); return; }
+            if (!roomId) { log('User ' + p + ': 채팅방을 먼저 선택하세요', 'msg-err'); return; }
+            if (!content) return;
+            const clientMessageId = generateUUID();
+            const optimisticUnread = Math.max(0, (state[p].memberCount || 0) - 1);
+            appendMsg({ senderId: userId(p), content, createdAt: nowLocalIso(), clientMessageId, unreadCount: optimisticUnread }, p);
+            state[p].client.send('/pub/chat/send', {}, JSON.stringify({ roomId, content, clientMessageId }));
+            input.value = '';
+            input.focus();
+        }
+
+        // 미디어 전송 테스트 (가짜 URL로 서버 저장 확인)
+        // 서버 정책상 미디어 메시지에는 캡션을 붙일 수 없으므로 content는 항상 빈 문자열
+        function sendMedia(p, mediaType, count) {
+            const roomId = state[p].selectedRoomId;
+            if (!state[p].client || !state[p].client.connected) { log('User ' + p + ' 미연결 상태', 'msg-err'); return; }
+            if (!roomId) { log('User ' + p + ': 채팅방을 먼저 선택하세요', 'msg-err'); return; }
+            const clientMessageId = generateUUID();
+            const ext = mediaType === 'VIDEO' ? 'mp4' : 'jpg';
+            const media = [];
+            for (let i = 0; i < count; i++) {
+                const ts = Date.now() + i;
+                // URL 체계: 이미지 = original + thumbnail, 영상 = original + preview
+                const item = {
+                    mediaType,
+                    originalUrl: `https://cdn.example.com/original/${ts}.${ext}`,
+                    originalS3Key: `uploads/original/${ts}.${ext}`
+                };
+                if (mediaType === 'IMAGE') {
+                    item.thumbnailUrl   = `https://picsum.photos/seed/${ts}/80/80`;
+                    item.thumbnailS3Key = `uploads/thumbnail/${ts}.jpg`;
+                } else {
+                    item.previewUrl   = `https://picsum.photos/seed/${ts}/80/80`;
+                    item.previewS3Key = `uploads/preview/${ts}.jpg`;
+                }
+                media.push(item);
+            }
+            const payload = { roomId, content: '', clientMessageId, media };
+            const optimisticUnread = Math.max(0, (state[p].memberCount || 0) - 1);
+            appendMsg({ senderId: userId(p), content: '', messageType: mediaType, media, createdAt: nowLocalIso(), clientMessageId, unreadCount: optimisticUnread }, p);
+            state[p].client.send('/pub/chat/send', {}, JSON.stringify(payload));
+        }
+
+        // 정책 위반 페이로드를 그대로 전송 — 서버 400 확인용 (개발자 콘솔에서 호출)
+        function sendRawMedia(p, payload) {
+            const roomId = state[p].selectedRoomId;
+            if (!state[p].client || !state[p].client.connected) { log('User ' + p + ' 미연결 상태', 'msg-err'); return; }
+            if (!roomId) { log('User ' + p + ': 채팅방을 먼저 선택하세요', 'msg-err'); return; }
+            const body = Object.assign({ roomId, clientMessageId: generateUUID(), content: '', media: [] }, payload);
+            log('User ' + p + ' 원본 전송: ' + JSON.stringify(body));
+            state[p].client.send('/pub/chat/send', {}, JSON.stringify(body));
+        }
+
+        // ──────────────────────────────────────────────────────
+        // 유틸
+        // ──────────────────────────────────────────────────────
+        // 서버 LocalDateTime(KST)과 동일한 포맷의 현재 시각 — "2026-08-26T14:12:33.123"
+        // toISOString()은 UTC(...Z)라 서버가 내려주는 readAt/createdAt과 문자열 비교하면
+        // 항상 9시간 작게 나와 낙관적 메시지가 무조건 차감된다.
+        function nowLocalIso() {
+            const d = new Date();
+            return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, -1);
+        }
+
+        function formatTime(dateStr) {
+            if (!dateStr) return '';
+            return new Date(dateStr).toLocaleString();
+        }
+    </script>
+</body>
+</html>

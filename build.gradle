@@ -1,0 +1,56 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '3.2.4'
+	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.strider'
+version = '0.0.1'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+}
+
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencyManagement {
+	imports {
+		mavenBom "org.springframework.cloud:spring-cloud-dependencies:2023.0.1"
+	}
+}
+
+dependencies {	
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.postgresql:postgresql:42.7.3'
+	implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
+	// 요청 입력값 검증 (@NotBlank 등)
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	// WebSocket(STOMP) — 실시간 메시지 송수신
+	implementation 'org.springframework.boot:spring-boot-starter-websocket' 
+	// Kafka — 메시지 이벤트 발행/소비 (Outbox 패턴 연동)
+	implementation 'org.springframework.kafka:spring-kafka'
+	// Redis — 온라인 상태 및 활성 채팅방 추적
+	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+	// Jackson — Kafka 페이로드 JSON 직렬화/역직렬화
+	implementation 'com.fasterxml.jackson.core:jackson-databind'
+	implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'  // LocalDateTime 지원
+
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+	annotationProcessor 'org.projectlombok:lombok'
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+	implementation project(':strider-common-lib')
+}
